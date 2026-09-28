@@ -11,10 +11,10 @@ st.set_page_config(
 # ---------- Load data ----------
 @st.cache_data
 def load_data():
-    sales = pd.read_csv("data/sales_daily.csv")
-    inventory = pd.read_csv("data/inventory_snapshots.csv")
-    sku = pd.read_csv("data/sku_master.csv")
-    calendar = pd.read_csv("data/calendar.csv")
+    sales = pd.read_csv("sales_daily.csv")
+    inventory = pd.read_csv("inventory_snapshots.csv")
+    sku = pd.read_csv("sku_master.csv")
+    calendar = pd.read_csv("calendar.csv")
 
     sales["Date"] = pd.to_datetime(sales["Date"])
     inventory["Snapshot_Date"] = pd.to_datetime(inventory["Snapshot_Date"])
