@@ -116,36 +116,107 @@ fig_sales.update_layout(height=400)
 st.plotly_chart(fig_sales, use_container_width=True)
 
 # ---------- Actual vs baseline forecast ----------
-st.subheader("🔮 Demand Forecast")
+st.subheader("🔮 Weekly Demand Forecast")
 
-if selected_sku == "All":
-    forecast_df = (
-        sales_f.groupby("Date", as_index=False)["Units_Sold"].sum()
-    )
-    forecast_df = forecast_df.sort_values("Date")
-    forecast_df["Forecast"] = (
-        forecast_df["Units_Sold"].rolling(28, min_periods=7).mean()
-    )
-    chart_title = "Actual Demand vs 28-Day Baseline Forecast"
-else:
-    forecast_df = (
-        sales_f.groupby("Date", as_index=False)["Units_Sold"].sum()
-    )
-    forecast_df = forecast_df.sort_values("Date")
-    forecast_df["Forecast"] = (
-        forecast_df["Units_Sold"].rolling(28, min_periods=7).mean()
-    )
-    chart_title = f"{selected_sku}: Actual Demand vs Baseline Forecast"
+forecast_source = sales_f.copy()
 
-fig_forecast = px.line(
-    forecast_df.tail(120),
-    x="Date",
-    y=["Units_Sold", "Forecast"],
-    title=chart_title,
-    labels={"value": "Units", "variable": "Series"}
+# Convert daily sales into weekly demand
+forecast_source["Week"] = (
+    forecast_source["Date"].dt.to_period("W-SUN").dt.start_time
 )
-fig_forecast.update_layout(height=400)
-st.plotly_chart(fig_forecast, use_container_width=True)
+
+weekly = (
+    forecast_source.groupby("Week", as_index=False)
+    .agg(Units_Sold=("Units_Sold", "sum"))
+    .sort_values("Week")
+)
+
+if weekly.empty:
+    st.info("No sales data available for the selected filters.")
+else:
+    # Weekly demand lookup for the seasonal-naive baseline
+    weekly_lookup = dict(zip(weekly["Week"], weekly["Units_Sold"]))
+
+    last_week = weekly["Week"].max()
+    recent_average = weekly.tail(4)["Units_Sold"].mean()
+
+    # Forecast the next 8 weeks
+    future_rows = []
+
+    for i in range(1, 9):
+        future_week = last_week + pd.Timedelta(weeks=i)
+
+        # Use demand from the corresponding week 52 weeks earlier
+        comparison_week = future_week - pd.Timedelta(weeks=52)
+
+        if comparison_week in weekly_lookup:
+            predicted_demand = weekly_lookup[comparison_week]
+        else:
+            predicted_demand = recent_average
+
+        future_rows.append({
+            "Date": future_week,
+            "Units_Sold": float("nan"),
+            "Forecast": max(0, predicted_demand)
+        })
+
+    # Show the last 26 weeks of actual demand
+    history = weekly.tail(26).rename(
+        columns={"Week": "Date"}
+    ).copy()
+
+    history["Forecast"] = float("nan")
+
+    # Combine historical actuals and future forecasts
+    future_df = pd.DataFrame(future_rows)
+
+    chart_df = pd.concat(
+        [
+            history[["Date", "Units_Sold", "Forecast"]],
+            future_df[["Date", "Units_Sold", "Forecast"]]
+        ],
+        ignore_index=True
+    ).sort_values("Date")
+
+    fig_forecast = px.line(
+        chart_df,
+        x="Date",
+        y=["Units_Sold", "Forecast"],
+        title="Weekly Actual Demand and Next 8 Weeks Forecast",
+        labels={
+            "Date": "Week",
+            "value": "Units",
+            "variable": "Series"
+        }
+    )
+
+    fig_forecast.update_layout(height=450)
+
+    st.plotly_chart(
+        fig_forecast,
+        use_container_width=True
+    )
+
+    st.caption(
+        "Baseline method: seasonal-naive forecast using demand "
+        "from 52 weeks earlier. If unavailable, the last 4-week "
+        "average is used. This is a baseline, not an advanced ML model."
+    )
+
+    st.subheader("📅 Next 8 Weeks Forecast")
+
+    st.dataframe(
+        future_df.rename(
+            columns={
+                "Date": "Forecast Week",
+                "Forecast": "Predicted Units"
+            }
+        )[["Forecast Week", "Predicted Units"]].assign(
+            **{"Predicted Units": lambda df: df["Predicted Units"].round(0)}
+        ),
+        use_container_width=True,
+        hide_index=True
+    )
 
 # ---------- Inventory risk ----------
 st.subheader("⚠️ Inventory Risk")
